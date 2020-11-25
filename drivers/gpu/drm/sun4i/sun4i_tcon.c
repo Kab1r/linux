@@ -353,7 +353,6 @@ static void sun4i_tcon0_mode_set_cpu(struct sun4i_tcon *tcon,
 	u8 bpp = mipi_dsi_pixel_format_to_bpp(device->format);
 	u8 lanes = device->lanes;
 	u32 block_space, start_delay;
-	u32 tcon_div;
 
 	/*
 	 * dclk is required to run at 1/4 the DSI per-lane bit rate.
@@ -363,7 +362,11 @@ static void sun4i_tcon0_mode_set_cpu(struct sun4i_tcon *tcon,
 	clk_set_rate(tcon->dclk, mode->crtc_clock * 1000 * (bpp / lanes)
 						  / SUN6I_DSI_TCON_DIV);
 
-	/* Set the resolution */
+	/* Configure the dot clock */
+	clk_set_rate(tcon->dclk, mode->crtc_clock * 1000
+				 * bpp / (lanes * SUN6I_DSI_TCON_DIV));
+
+        /* Set the resolution */
 	regmap_write(tcon->regs, SUN4I_TCON0_BASIC0_REG,
 		     SUN4I_TCON0_BASIC0_X(mode->crtc_hdisplay) |
 		     SUN4I_TCON0_BASIC0_Y(mode->crtc_vdisplay));
@@ -390,9 +393,7 @@ static void sun4i_tcon0_mode_set_cpu(struct sun4i_tcon *tcon,
 	 * The datasheet says that this should be set higher than 20 *
 	 * pixel cycle, but it's not clear what a pixel cycle is.
 	 */
-	regmap_read(tcon->regs, SUN4I_TCON0_DCLK_REG, &tcon_div);
-	tcon_div &= GENMASK(6, 0);
-	block_space = mode->htotal * bpp / (tcon_div * lanes);
+	block_space = mode->htotal * bpp / (SUN6I_DSI_TCON_DIV * lanes);
 	block_space -= mode->hdisplay + 40;
 
 	regmap_write(tcon->regs, SUN4I_TCON0_CPU_TRI0_REG,
@@ -434,9 +435,11 @@ static void sun4i_tcon0_mode_set_lvds(struct sun4i_tcon *tcon,
 
 	tcon->dclk_min_div = 7;
 	tcon->dclk_max_div = 7;
+
+	/* Configure the dot clock */
 	clk_set_rate(tcon->dclk, mode->crtc_clock * 1000);
 
-	/* Set the resolution */
+        /* Set the resolution */
 	regmap_write(tcon->regs, SUN4I_TCON0_BASIC0_REG,
 		     SUN4I_TCON0_BASIC0_X(mode->crtc_hdisplay) |
 		     SUN4I_TCON0_BASIC0_Y(mode->crtc_vdisplay));
@@ -516,6 +519,8 @@ static void sun4i_tcon0_mode_set_rgb(struct sun4i_tcon *tcon,
 
 	tcon->dclk_min_div = tcon->quirks->dclk_min_div;
 	tcon->dclk_max_div = 127;
+
+	/* Configure the dot clock */
 	clk_set_rate(tcon->dclk, mode->crtc_clock * 1000);
 
 	/* Set the resolution */
