@@ -87,12 +87,12 @@
 #define SUN6I_TXDATA_REG		0x200
 #define SUN6I_RXDATA_REG		0x300
 
-struct sun6i_spi_cfg {
+struct sun6i_spi_quirks {
 	unsigned long		fifo_depth;
-	bool			has_clk_ctl;
 };
 
 struct sun6i_spi {
+	const struct sun6i_spi_quirks *quirks;
 	struct spi_master	*master;
 	void __iomem		*base_addr;
 	dma_addr_t		dma_addr_rx;
@@ -106,7 +106,6 @@ struct sun6i_spi {
 	const u8		*tx_buf;
 	u8			*rx_buf;
 	int			len;
-	const struct sun6i_spi_cfg *cfg;
 };
 
 static inline u32 sun6i_spi_read(struct sun6i_spi *sspi, u32 reg)
@@ -163,7 +162,7 @@ static inline void sun6i_spi_fill_fifo(struct sun6i_spi *sspi)
 	u8 byte;
 
 	/* See how much data we can fit */
-	cnt = sspi->cfg->fifo_depth - sun6i_spi_get_tx_fifo_count(sspi);
+	cnt = sspi->quirks->fifo_depth - sun6i_spi_get_tx_fifo_count(sspi);
 
 	len = min((int)cnt, sspi->len);
 
@@ -296,14 +295,14 @@ static int sun6i_spi_transfer_one(struct spi_master *master,
 		 * the hardcoded value used in old generation of Allwinner
 		 * SPI controller. (See spi-sun4i.c)
 		 */
-		trig_level = sspi->cfg->fifo_depth / 4 * 3;
+		trig_level = sspi->quirks->fifo_depth / 4 * 3;
 	} else {
 		/*
 		 * Setup FIFO DMA request trigger level
 		 * We choose 1/2 of the full fifo depth, that value will
 		 * be used as DMA burst length.
 		 */
-		trig_level = sspi->cfg->fifo_depth / 2;
+		trig_level = sspi->quirks->fifo_depth / 2;
 
 		if (tfr->tx_buf)
 			reg |= SUN6I_FIFO_CTL_TF_DRQ_EN;
@@ -443,9 +442,9 @@ static int sun6i_spi_transfer_one(struct spi_master *master,
 	reg = SUN6I_INT_CTL_TC;
 
 	if (!use_dma) {
-		if (rx_len > sspi->cfg->fifo_depth)
+		if (rx_len > sspi->quirks->fifo_depth)
 			reg |= SUN6I_INT_CTL_RF_RDY;
-		if (tx_len > sspi->cfg->fifo_depth)
+		if (tx_len > sspi->quirks->fifo_depth)
 			reg |= SUN6I_INT_CTL_TF_ERQ;
 	}
 
@@ -576,7 +575,7 @@ static bool sun6i_spi_can_dma(struct spi_master *master,
 	 * the fifo length we can just fill the fifo and wait for a single
 	 * irq, so don't bother setting up dma
 	 */
-	return xfer->len > sspi->cfg->fifo_depth;
+	return xfer->len > sspi->quirks->fifo_depth;
 }
 
 static int sun6i_spi_probe(struct platform_device *pdev)
@@ -615,7 +614,7 @@ static int sun6i_spi_probe(struct platform_device *pdev)
 	}
 
 	sspi->master = master;
-	sspi->cfg = of_device_get_match_data(&pdev->dev);
+	sspi->quirks = of_device_get_match_data(&pdev->dev);
 
 	master->max_speed_hz = 100 * 1000 * 1000;
 	master->min_speed_hz = 3 * 1000;
@@ -728,27 +727,17 @@ static void sun6i_spi_remove(struct platform_device *pdev)
 		dma_release_channel(master->dma_rx);
 }
 
-static const struct sun6i_spi_cfg sun6i_a31_spi_cfg = {
-	.fifo_depth	= SUN6I_FIFO_DEPTH,
-	.has_clk_ctl	= true,
+static const struct sun6i_spi_quirks sun6i_a31_spi_quirks = {
+	.fifo_depth		= SUN6I_FIFO_DEPTH,
 };
 
-static const struct sun6i_spi_cfg sun8i_h3_spi_cfg = {
-	.fifo_depth	= SUN8I_FIFO_DEPTH,
-	.has_clk_ctl	= true,
-};
-
-static const struct sun6i_spi_cfg sun50i_r329_spi_cfg = {
-	.fifo_depth	= SUN8I_FIFO_DEPTH,
+static const struct sun6i_spi_quirks sun8i_h3_spi_quirks = {
+	.fifo_depth		= SUN8I_FIFO_DEPTH,
 };
 
 static const struct of_device_id sun6i_spi_match[] = {
-	{ .compatible = "allwinner,sun6i-a31-spi", .data = &sun6i_a31_spi_cfg },
-	{ .compatible = "allwinner,sun8i-h3-spi",  .data = &sun8i_h3_spi_cfg },
-	{
-		.compatible = "allwinner,sun50i-r329-spi",
-		.data = &sun50i_r329_spi_cfg
-	},
+	{ .compatible = "allwinner,sun6i-a31-spi", .data = &sun6i_a31_spi_quirks },
+	{ .compatible = "allwinner,sun8i-h3-spi", .data = &sun8i_h3_spi_quirks },
 	{}
 };
 MODULE_DEVICE_TABLE(of, sun6i_spi_match);
