@@ -30,6 +30,7 @@
 #define SUN6I_GBL_CTL_REG		0x04
 #define SUN6I_GBL_CTL_BUS_ENABLE		BIT(0)
 #define SUN6I_GBL_CTL_MASTER			BIT(1)
+#define SUN6I_GBL_CTL_SAMPLE_MODE		BIT(2)
 #define SUN6I_GBL_CTL_TP			BIT(7)
 #define SUN6I_GBL_CTL_RST			BIT(31)
 
@@ -89,6 +90,8 @@
 
 struct sun6i_spi_quirks {
 	unsigned long		fifo_depth;
+	bool			has_divider : 1;
+	bool			has_new_sample_mode : 1;
 };
 
 struct sun6i_spi {
@@ -352,10 +355,9 @@ static int sun6i_spi_transfer_one(struct spi_master *master,
 
 	sun6i_spi_write(sspi, SUN6I_TFR_CTL_REG, reg);
 
-	if (sspi->cfg->has_clk_ctl) {
-		unsigned int mclk_rate = clk_get_rate(sspi->mclk);
-
-		/* Ensure that we have a parent clock fast enough */
+	/* Ensure that we have a parent clock fast enough */
+	if (sspi->quirks->has_divider) {
+		mclk_rate = clk_get_rate(sspi->mclk);
 		if (mclk_rate < (2 * tfr->speed_hz)) {
 			clk_set_rate(sspi->mclk, 2 * tfr->speed_hz);
 			mclk_rate = clk_get_rate(sspi->mclk);
@@ -385,30 +387,11 @@ static int sun6i_spi_transfer_one(struct spi_master *master,
 			reg = SUN6I_CLK_CTL_CDR1(div);
 			tfr->effective_speed_hz = mclk_rate / (1 << div);
 		}
-
 		sun6i_spi_write(sspi, SUN6I_CLK_CTL_REG, reg);
 	} else {
 		clk_set_rate(sspi->mclk, tfr->speed_hz);
-		tfr->effective_speed_hz = clk_get_rate(sspi->mclk);
-
-		/*
-		 * Configure work mode.
-		 *
-		 * There are three work modes depending on the controller clock
-		 * frequency:
-		 * - normal sample mode           : CLK <= 24MHz SDM=1 SDC=0
-		 * - delay half-cycle sample mode : CLK <= 40MHz SDM=0 SDC=0
-		 * - delay one-cycle sample mode  : CLK >= 80MHz SDM=0 SDC=1
-		 */
-		reg = sun6i_spi_read(sspi, SUN6I_TFR_CTL_REG);
-		reg &= ~(SUN6I_TFR_CTL_SDM | SUN6I_TFR_CTL_SDC);
-
-		if (tfr->effective_speed_hz <= 24000000)
-			reg |= SUN6I_TFR_CTL_SDM;
-		else if (tfr->effective_speed_hz >= 80000000)
-			reg |= SUN6I_TFR_CTL_SDC;
-
-		sun6i_spi_write(sspi, SUN6I_TFR_CTL_REG, reg);
+		mclk_rate = clk_get_rate(sspi->mclk);
+		tfr->effective_speed_hz = mclk_rate;
 	}
 
 	/* Finally enable the bus - doing so before might raise SCK to HIGH */
@@ -520,6 +503,7 @@ static int sun6i_spi_runtime_resume(struct device *dev)
 	struct spi_master *master = dev_get_drvdata(dev);
 	struct sun6i_spi *sspi = spi_master_get_devdata(master);
 	int ret;
+	u32 reg;
 
 	ret = clk_prepare_enable(sspi->hclk);
 	if (ret) {
@@ -539,8 +523,10 @@ static int sun6i_spi_runtime_resume(struct device *dev)
 		goto err2;
 	}
 
-	sun6i_spi_write(sspi, SUN6I_GBL_CTL_REG,
-			SUN6I_GBL_CTL_MASTER | SUN6I_GBL_CTL_TP);
+	reg = SUN6I_GBL_CTL_MASTER | SUN6I_GBL_CTL_TP;
+	if (sspi->quirks->has_new_sample_mode)
+		reg |= SUN6I_GBL_CTL_SAMPLE_MODE;
+	sun6i_spi_write(sspi, SUN6I_GBL_CTL_REG, reg);
 
 	return 0;
 
@@ -729,15 +715,23 @@ static void sun6i_spi_remove(struct platform_device *pdev)
 
 static const struct sun6i_spi_quirks sun6i_a31_spi_quirks = {
 	.fifo_depth		= SUN6I_FIFO_DEPTH,
+	.has_divider		= true,
 };
 
 static const struct sun6i_spi_quirks sun8i_h3_spi_quirks = {
 	.fifo_depth		= SUN8I_FIFO_DEPTH,
+	.has_divider		= true,
+};
+
+static const struct sun6i_spi_quirks sun50i_r329_spi_quirks = {
+	.fifo_depth		= SUN8I_FIFO_DEPTH,
+	.has_new_sample_mode	= true,
 };
 
 static const struct of_device_id sun6i_spi_match[] = {
 	{ .compatible = "allwinner,sun6i-a31-spi", .data = &sun6i_a31_spi_quirks },
 	{ .compatible = "allwinner,sun8i-h3-spi", .data = &sun8i_h3_spi_quirks },
+	{ .compatible = "allwinner,sun50i-r329-spi", .data = &sun50i_r329_spi_quirks },
 	{}
 };
 MODULE_DEVICE_TABLE(of, sun6i_spi_match);
