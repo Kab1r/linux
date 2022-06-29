@@ -2,19 +2,20 @@
 // Copyright (C) 2022 Jisheng Zhang <jszhang@kernel.org>
 // Copyright (C) 2022 Samuel Holland <samuel@sholland.org>
 
+/dts-v1/;
+
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/leds/common.h>
 
-/dts-v1/;
-
 #include "sun20i-d1.dtsi"
-#include "sun20i-common-regulators.dtsi"
+#include "sun20i-d1-common-regulators.dtsi"
 
 / {
 	model = "Sipeed Lichee RV";
 	compatible = "sipeed,lichee-rv", "allwinner,sun20i-d1";
 
 	aliases {
+		mmc0 = &mmc0;
 		serial0 = &uart0;
 	};
 
@@ -43,10 +44,6 @@
 
 &cpu0 {
 	cpu-supply = <&reg_vdd_cpu>;
-};
-
-&dcxo {
-	clock-frequency = <24000000>;
 };
 
 &ehci0 {

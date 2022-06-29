@@ -15,48 +15,25 @@
 		ethernet1 = &rtl8723ds;
 	};
 
-	dmic_codec: dmic-codec {
-		compatible = "dmic-codec";
-		num-channels = <2>;
-		#sound-dai-cells = <0>;
-	};
-
-	dmic-sound {
-		compatible = "simple-audio-card";
-		simple-audio-card,name = "DMIC";
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		simple-audio-card,dai-link@0 {
-			reg = <0>;
-			format = "pdm";
-			frame-master = <&link0_cpu>;
-			bitclock-master = <&link0_cpu>;
-
-			link0_cpu: cpu {
-				sound-dai = <&dmic>;
-			};
-
-			link0_codec: codec {
-				sound-dai = <&dmic_codec>;
-			};
-		};
-	};
-
 	wifi_pwrseq: wifi-pwrseq {
 		compatible = "mmc-pwrseq-simple";
 		reset-gpios = <&pio 6 12 GPIO_ACTIVE_LOW>; /* PG12 */
 	};
 };
 
-&dmic {
-	pinctrl-0 = <&dmic_pb11_d0_pin>, <&dmic_pe17_clk_pin>;
-	pinctrl-names = "default";
+&ehci1 {
 	status = "okay";
 };
 
-&ehci1 {
+&lradc {
 	status = "okay";
+
+	button-220 {
+		label = "OK";
+		linux,code = <KEY_OK>;
+		channel = <0>;
+		voltage = <220000>;
+	};
 };
 
 &mmc1 {
