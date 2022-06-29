@@ -54,20 +54,10 @@ properties:
           - const: sipeed,lichee-rv
           - const: allwinner,sun20i-d1
 
-      - description: MangoPi MQ board
-        items:
-          - const: widora,mangopi-mq
-          - const: allwinner,sun20i-d1s
-
       - description: MangoPi MQ Pro board
         items:
           - const: widora,mangopi-mq-pro
           - const: allwinner,sun20i-d1
-
-      - description: MangoPi MQ-R board
-        items:
-          - const: widora,mangopi-mq-r-f133
-          - const: allwinner,sun20i-d1s
 
 additionalProperties: true
 
