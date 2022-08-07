@@ -177,7 +177,10 @@ enum sun6i_dphy_direction {
 	SUN6I_DPHY_DIRECTION_RX,
 };
 
+struct sun6i_dphy;
+
 struct sun6i_dphy_variant {
+	void	(*tx_power_on)(struct sun6i_dphy *dphy);
 	bool	supports_rx;
 };
 
@@ -253,76 +256,6 @@ static void sun6i_a31_mipi_dphy_tx_power_on(struct sun6i_dphy *dphy)
 		     SUN6I_DPHY_ANA3_EN_LDOR |
 		     SUN6I_DPHY_ANA3_EN_LDOC |
 		     SUN6I_DPHY_ANA3_EN_LDOD);
-	udelay(1);
-}
-
-static void sun50i_a100_mipi_dphy_tx_power_on(struct sun6i_dphy *dphy)
-{
-	unsigned long mipi_symbol_rate = dphy->config.hs_clk_rate;
-	unsigned int div, n;
-
-	regmap_write(dphy->regs, SUN6I_DPHY_ANA4_REG,
-		     SUN6I_DPHY_ANA4_REG_IB(2) |
-		     SUN6I_DPHY_ANA4_REG_DMPLVD(4) |
-		     SUN6I_DPHY_ANA4_REG_VTT_SET(3) |
-		     SUN6I_DPHY_ANA4_REG_CKDV(3) |
-		     SUN6I_DPHY_ANA4_REG_TMSD(1) |
-		     SUN6I_DPHY_ANA4_REG_TMSC(1) |
-		     SUN6I_DPHY_ANA4_REG_TXPUSD(2) |
-		     SUN6I_DPHY_ANA4_REG_TXPUSC(3) |
-		     SUN6I_DPHY_ANA4_REG_TXDNSD(2) |
-		     SUN6I_DPHY_ANA4_REG_TXDNSC(3));
-
-	regmap_update_bits(dphy->regs, SUN6I_DPHY_ANA2_REG,
-			   SUN6I_DPHY_ANA2_EN_CK_CPU,
-			   SUN6I_DPHY_ANA2_EN_CK_CPU);
-
-	regmap_update_bits(dphy->regs, SUN6I_DPHY_ANA2_REG,
-			   SUN6I_DPHY_ANA2_REG_ENIB,
-			   SUN6I_DPHY_ANA2_REG_ENIB);
-
-	regmap_write(dphy->regs, SUN6I_DPHY_ANA3_REG,
-		     SUN6I_DPHY_ANA3_EN_LDOR |
-		     SUN6I_DPHY_ANA3_EN_LDOC |
-		     SUN6I_DPHY_ANA3_EN_LDOD);
-
-	regmap_write(dphy->regs, SUN6I_DPHY_ANA0_REG,
-		     SUN6I_DPHY_ANA0_REG_PLR(4) |
-		     SUN6I_DPHY_ANA0_REG_SFB(1));
-
-	regmap_write(dphy->regs, SUN50I_COMBO_PHY_REG0,
-		     SUN50I_COMBO_PHY_REG0_EN_CP);
-
-	/* Choose a divider to limit the VCO frequency to around 2 GHz. */
-	div = 16 >> order_base_2(DIV_ROUND_UP(mipi_symbol_rate, 264000000));
-	n = mipi_symbol_rate * div / 24000000;
-
-	regmap_write(dphy->regs, SUN50I_DPHY_PLL_REG0,
-		     SUN50I_DPHY_PLL_REG0_CP36_EN |
-		     SUN50I_DPHY_PLL_REG0_LDO_EN |
-		     SUN50I_DPHY_PLL_REG0_EN_LVS |
-		     SUN50I_DPHY_PLL_REG0_PLL_EN |
-		     SUN50I_DPHY_PLL_REG0_NDET |
-		     SUN50I_DPHY_PLL_REG0_P((div - 1) % 8) |
-		     SUN50I_DPHY_PLL_REG0_N(n) |
-		     SUN50I_DPHY_PLL_REG0_M0((div - 1) / 8) |
-		     SUN50I_DPHY_PLL_REG0_M1(2));
-
-	/* Disable sigma-delta modulation. */
-	regmap_write(dphy->regs, SUN50I_DPHY_PLL_REG2, 0);
-
-	regmap_update_bits(dphy->regs, SUN6I_DPHY_ANA4_REG,
-			   SUN6I_DPHY_ANA4_REG_EN_MIPI,
-			   SUN6I_DPHY_ANA4_REG_EN_MIPI);
-
-	regmap_update_bits(dphy->regs, SUN50I_COMBO_PHY_REG0,
-			   SUN50I_COMBO_PHY_REG0_EN_MIPI |
-			   SUN50I_COMBO_PHY_REG0_EN_COMBOLDO,
-			   SUN50I_COMBO_PHY_REG0_EN_MIPI |
-			   SUN50I_COMBO_PHY_REG0_EN_COMBOLDO);
-
-	regmap_write(dphy->regs, SUN50I_COMBO_PHY_REG2,
-		     SUN50I_COMBO_PHY_REG2_HS_STOP_DLY(20));
 	udelay(1);
 }
 
@@ -609,6 +542,7 @@ static int sun6i_dphy_probe(struct platform_device *pdev)
 }
 
 static const struct sun6i_dphy_variant sun6i_a31_mipi_dphy_variant = {
+	.tx_power_on	= sun6i_a31_mipi_dphy_tx_power_on,
 	.supports_rx	= true,
 };
 
