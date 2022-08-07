@@ -177,11 +177,8 @@ enum sun6i_dphy_direction {
 	SUN6I_DPHY_DIRECTION_RX,
 };
 
-struct sun6i_dphy;
-
 struct sun6i_dphy_variant {
-	void	(*tx_power_on)(struct sun6i_dphy *dphy);
-	bool	rx_supported;
+	bool	supports_rx;
 };
 
 struct sun6i_dphy {
@@ -598,11 +595,10 @@ static int sun6i_dphy_probe(struct platform_device *pdev)
 				      &direction);
 
 	if (!ret && !strncmp(direction, "rx", 2)) {
-		if (!dphy->variant->rx_supported) {
+		if (!dphy->variant->supports_rx) {
 			dev_err(&pdev->dev, "RX not supported on this variant\n");
 			return -EOPNOTSUPP;
 		}
-
 		dphy->direction = SUN6I_DPHY_DIRECTION_RX;
 	}
 
@@ -613,22 +609,13 @@ static int sun6i_dphy_probe(struct platform_device *pdev)
 }
 
 static const struct sun6i_dphy_variant sun6i_a31_mipi_dphy_variant = {
-	.tx_power_on	= sun6i_a31_mipi_dphy_tx_power_on,
-	.rx_supported	= true,
-};
-
-static const struct sun6i_dphy_variant sun50i_a100_mipi_dphy_variant = {
-	.tx_power_on	= sun50i_a100_mipi_dphy_tx_power_on,
+	.supports_rx	= true,
 };
 
 static const struct of_device_id sun6i_dphy_of_table[] = {
 	{
 		.compatible	= "allwinner,sun6i-a31-mipi-dphy",
 		.data		= &sun6i_a31_mipi_dphy_variant,
-	},
-	{
-		.compatible	= "allwinner,sun50i-a100-mipi-dphy",
-		.data		= &sun50i_a100_mipi_dphy_variant,
 	},
 	{ }
 };
