@@ -22,34 +22,13 @@
 		stdout-path = "serial0:115200n8";
 	};
 
-	audio_amplifier: audio-amplifier {
-		compatible = "simple-audio-amplifier";
-		enable-gpios = <&pio 4 1 GPIO_ACTIVE_HIGH>; /* PE1/GPIO11 */
-		sound-name-prefix = "Amplifier";
-		VCC-supply = <&reg_vcc>;
-	};
-
-	/*
-	 * FIXME: This is not really an amplifier, but the amplifier binding
-	 * has the needed properties and behavior.
-	 */
-	audio_switch: audio-switch {
-		compatible = "simple-audio-amplifier";
-		enable-gpios = <&pio 1 2 GPIO_ACTIVE_HIGH>; /* PB2/AUD_SWITCH */
-		sound-name-prefix = "Switch";
-		VCC-supply = <&reg_aldo1>;
-	};
-
-	/*
-	 * This regulator is PWM-controlled, but the PWM controller is not
-	 * yet supported, so fix the regulator to its default voltage.
-	 */
 	reg_vdd_cpu: vdd-cpu {
-		compatible = "regulator-fixed";
+		compatible = "pwm-regulator";
+		pwms = <&pwm 0 50000 0>;
+		pwm-supply = <&reg_vcc>;
 		regulator-name = "vdd-cpu";
-		regulator-min-microvolt = <1100000>;
-		regulator-max-microvolt = <1100000>;
-		vin-supply = <&reg_vcc>;
+		regulator-min-microvolt = <810000>;
+		regulator-max-microvolt = <1160000>;
 	};
 
 	wifi_pwrseq: wifi-pwrseq {
@@ -263,6 +242,12 @@
 		pins = "PG15";
 		function = "i2s1_dout";
 	};
+};
+
+&pwm {
+	pinctrl-0 = <&pwm0_pd16_pin>;
+	pinctrl-names = "default";
+	status = "okay";
 };
 
 &uart0 {
