@@ -40,18 +40,16 @@
 	status = "okay";
 };
 
-&hdmi {
+&ledc {
+	pinctrl-0 = <&ledc_pc0_pin>;
+	pinctrl-names = "default";
 	status = "okay";
-};
 
-&hdmi_out {
-	hdmi_out_connector: endpoint {
-		remote-endpoint = <&hdmi_connector_in>;
+	multi-led@0 {
+		reg = <0x0>;
+		color = <LED_COLOR_ID_RGB>;
+		function = LED_FUNCTION_STATUS;
 	};
-};
-
-&hdmi_phy {
-	status = "okay";
 };
 
 &lradc {
