@@ -1,6 +1,7 @@
+# Maintainer: Kabir Kwatra <kabir@kwatra.me>
 # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
 
-pkgbase=linux
+pkgbase=linux-kab1r
 pkgver=6.11.9.arch1
 pkgrel=1
 pkgdesc='Linux'

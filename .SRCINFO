@@ -1,4 +1,4 @@
-pkgbase = linux
+pkgbase = linux-kab1r
 	pkgdesc = Linux
 	pkgver = 6.11.9.arch1
 	pkgrel = 1
@@ -40,7 +40,7 @@ pkgbase = linux
 	b2sums = SKIP
 	b2sums = d93b085af1eb81aacf91b79b06a1b7313f4d5290da4f0853beade5aab11a8a53fd1a541aa123ec8d445edee6c7d4a0b54c7d45afee2249b903614a582b5959bc
 
-pkgname = linux
+pkgname = linux-kab1r
 	pkgdesc = The Linux kernel and modules
 	depends = coreutils
 	depends = initramfs
@@ -53,9 +53,9 @@ pkgname = linux
 	replaces = virtualbox-guest-modules-arch
 	replaces = wireguard-arch
 
-pkgname = linux-headers
+pkgname = linux-kab1r-headers
 	pkgdesc = Headers and scripts for building modules for the Linux kernel
 	depends = pahole
 
-pkgname = linux-docs
+pkgname = linux-kab1r-docs
 	pkgdesc = Documentation for the Linux kernel
