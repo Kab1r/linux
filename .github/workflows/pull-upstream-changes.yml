@@ -1,0 +1,30 @@
+name: pull-upstream-changes
+on:
+  schedule: [{ cron: '0 8 * * *' }]
+  push:
+    branches: [ archpkg ]
+    paths: [ .github/** ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  pull-upstream-changes:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        sparse-checkout: .github
+    - run: |
+        git config --global user.name github-actions
+        git config --global user.email github-actions@github.com
+        git remote add -f -t main upstream https://gitlab.archlinux.org/archlinux/packaging/packages/linux.git
+        git reset --hard upstream/main
+        git checkout origin/archpkg -- .github
+        git add .github
+        git commit -m "chore(.github): restore files"
+        git am < .github/*.patch
+        TAG="$(git log --format=%s -n1 upstream/main)-${{ github.repository_owner }}"
+        git tag "${TAG}"
+        git push --force-with-lease --atomic origin archpkg "${TAG}"
