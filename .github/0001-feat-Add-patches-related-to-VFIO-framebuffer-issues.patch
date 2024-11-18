@@ -1,0 +1,498 @@
+From 984052d8c8564964ebdaf84b55654e7c3d7cbb4a Mon Sep 17 00:00:00 2001
+From: Kabir Kwatra <kabir@kwatra.me>
+Date: Thu, 7 Sep 2023 17:36:48 -0700
+Subject: [PATCH] feat: Add patches related to VFIO framebuffer issues
+
+---
+ .SRCINFO                                      |   8 +-
+ ...-fbdev-Remove-conflict-handling-code.patch | 243 ++++++++++++++++++
+ ...e-Remove-remove_conflicting_pci_fram.patch | 141 ++++++++++
+ PKGBUILD                                      |   3 +-
+ ...FF3A36AAA56654109064AB19802F8B0D70FC30.asc |  32 +++
+ 5 files changed, 422 insertions(+), 5 deletions(-)
+ create mode 100644 0001-Revert-fbdev-Remove-conflict-handling-code.patch
+ create mode 100644 0002-Revert-fbdev-core-Remove-remove_conflicting_pci_fram.patch
+ create mode 100644 keys/pgp/A2FF3A36AAA56654109064AB19802F8B0D70FC30.asc
+
+diff --git a/.SRCINFO b/.SRCINFO
+index 41ccf96..bf833a8 100644
+--- a/.SRCINFO
++++ b/.SRCINFO
+@@ -1,4 +1,4 @@
+-pkgbase = linux
++pkgbase = linux-kab1r
+ 	pkgdesc = Linux
+ 	pkgver = 6.11.9.arch1
+ 	pkgrel = 1
+@@ -40,7 +40,7 @@ pkgbase = linux
+ 	b2sums = SKIP
+ 	b2sums = d93b085af1eb81aacf91b79b06a1b7313f4d5290da4f0853beade5aab11a8a53fd1a541aa123ec8d445edee6c7d4a0b54c7d45afee2249b903614a582b5959bc
+ 
+-pkgname = linux
++pkgname = linux-kab1r
+ 	pkgdesc = The Linux kernel and modules
+ 	depends = coreutils
+ 	depends = initramfs
+@@ -53,9 +53,9 @@ pkgname = linux
+ 	replaces = virtualbox-guest-modules-arch
+ 	replaces = wireguard-arch
+ 
+-pkgname = linux-headers
++pkgname = linux-kab1r-headers
+ 	pkgdesc = Headers and scripts for building modules for the Linux kernel
+ 	depends = pahole
+ 
+-pkgname = linux-docs
++pkgname = linux-kab1r-docs
+ 	pkgdesc = Documentation for the Linux kernel
+diff --git a/0001-Revert-fbdev-Remove-conflict-handling-code.patch b/0001-Revert-fbdev-Remove-conflict-handling-code.patch
+new file mode 100644
+index 0000000..659421d
+--- /dev/null
++++ b/0001-Revert-fbdev-Remove-conflict-handling-code.patch
+@@ -0,0 +1,243 @@
++From 378cd081d2012a94990ffe5a786817f142c076ae Mon Sep 17 00:00:00 2001
++From: Kabir Kwatra <kabir@kwatra.me>
++Date: Fri, 24 Feb 2023 04:11:50 -0800
++Subject: [PATCH 1/2] Revert "fbdev: Remove conflict-handling code"
++
++This reverts commit 15fced5b051e6e22c228a521a5894b12c2ba0892.
++---
++ drivers/video/aperture.c         |  29 +++++++
++ drivers/video/fbdev/core/fbmem.c | 136 +++++++++++++++++++++++++++++++
++ include/linux/fb.h               |   2 +
++ 3 files changed, 167 insertions(+)
++
++diff --git a/drivers/video/aperture.c b/drivers/video/aperture.c
++index 561be8feca96..89abe864cb00 100644
++--- a/drivers/video/aperture.c
+++++ b/drivers/video/aperture.c
++@@ -2,6 +2,7 @@
++ 
++ #include <linux/aperture.h>
++ #include <linux/device.h>
+++#include <linux/fb.h> /* for old fbdev helpers */
++ #include <linux/list.h>
++ #include <linux/mutex.h>
++ #include <linux/pci.h>
++@@ -284,6 +285,11 @@ static void aperture_detach_devices(resource_size_t base, resource_size_t size)
++ int aperture_remove_conflicting_devices(resource_size_t base, resource_size_t size,
++ 					const char *name)
++ {
+++#if IS_REACHABLE(CONFIG_FB)
+++	struct apertures_struct *a;
+++	int ret;
+++#endif
+++
++ 	/*
++ 	 * If a driver asked to unregister a platform device registered by
++ 	 * sysfb, then can be assumed that this is a driver for a display
++@@ -297,6 +303,29 @@ int aperture_remove_conflicting_devices(resource_size_t base, resource_size_t si
++ 
++ 	aperture_detach_devices(base, size);
++ 
+++	/*
+++	 * If this is the primary adapter, there could be a VGA device
+++	 * that consumes the VGA framebuffer I/O range. Remove this device
+++	 * as well.
+++	 */
+++	if (primary)
+++		aperture_detach_devices(VGA_FB_PHYS_BASE, VGA_FB_PHYS_SIZE);
+++
+++#if IS_REACHABLE(CONFIG_FB)
+++	a = alloc_apertures(1);
+++	if (!a)
+++		return -ENOMEM;
+++
+++	a->ranges[0].base = base;
+++	a->ranges[0].size = size;
+++
+++	ret = remove_conflicting_framebuffers(a, name, primary);
+++	kfree(a);
+++
+++	if (ret)
+++		return ret;
+++#endif
+++
++ 	return 0;
++ }
++ EXPORT_SYMBOL(aperture_remove_conflicting_devices);
++diff --git a/drivers/video/fbdev/core/fbmem.c b/drivers/video/fbdev/core/fbmem.c
++index 329d16e49a90..2666f3ee8df3 100644
++--- a/drivers/video/fbdev/core/fbmem.c
+++++ b/drivers/video/fbdev/core/fbmem.c
++@@ -1427,6 +1427,102 @@ static int fb_check_foreignness(struct fb_info *fi)
++ 	return 0;
++ }
++ 
+++static bool apertures_overlap(struct aperture *gen, struct aperture *hw)
+++{
+++	/* is the generic aperture base the same as the HW one */
+++	if (gen->base == hw->base)
+++		return true;
+++	/* is the generic aperture base inside the hw base->hw base+size */
+++	if (gen->base > hw->base && gen->base < hw->base + hw->size)
+++		return true;
+++	return false;
+++}
+++
+++static bool fb_do_apertures_overlap(struct apertures_struct *gena,
+++				    struct apertures_struct *hwa)
+++{
+++	int i, j;
+++	if (!hwa || !gena)
+++		return false;
+++
+++	for (i = 0; i < hwa->count; ++i) {
+++		struct aperture *h = &hwa->ranges[i];
+++		for (j = 0; j < gena->count; ++j) {
+++			struct aperture *g = &gena->ranges[j];
+++			printk(KERN_DEBUG "checking generic (%llx %llx) vs hw (%llx %llx)\n",
+++				(unsigned long long)g->base,
+++				(unsigned long long)g->size,
+++				(unsigned long long)h->base,
+++				(unsigned long long)h->size);
+++			if (apertures_overlap(g, h))
+++				return true;
+++		}
+++	}
+++
+++	return false;
+++}
+++
+++static void do_unregister_framebuffer(struct fb_info *fb_info);
+++
+++static void do_remove_conflicting_framebuffers(struct apertures_struct *a,
+++					       const char *name, bool primary)
+++{
+++	int i;
+++
+++restart_removal:
+++	/* check all firmware fbs and kick off if the base addr overlaps */
+++	for_each_registered_fb(i) {
+++		struct apertures_struct *gen_aper;
+++		struct device *device;
+++
+++		if (!(registered_fb[i]->flags & FBINFO_MISC_FIRMWARE))
+++			continue;
+++
+++		gen_aper = registered_fb[i]->apertures;
+++		device = registered_fb[i]->device;
+++		if (fb_do_apertures_overlap(gen_aper, a) ||
+++			(primary && gen_aper && gen_aper->count &&
+++			 gen_aper->ranges[0].base == VGA_FB_PHYS_BASE)) {
+++
+++			printk(KERN_INFO "fb%d: switching to %s from %s\n",
+++			       i, name, registered_fb[i]->fix.id);
+++
+++			/*
+++			 * If we kick-out a firmware driver, we also want to remove
+++			 * the underlying platform device, such as simple-framebuffer,
+++			 * VESA, EFI, etc. A native driver will then be able to
+++			 * allocate the memory range.
+++			 *
+++			 * If it's not a platform device, at least print a warning. A
+++			 * fix would add code to remove the device from the system. For
+++			 * framebuffers without any Linux device, print a warning as
+++			 * well.
+++			 */
+++			if (!device) {
+++				pr_warn("fb%d: no device set\n", i);
+++				do_unregister_framebuffer(registered_fb[i]);
+++			} else if (dev_is_platform(device)) {
+++				/*
+++				 * Drop the lock because if the device is unregistered, its
+++				 * driver will call to unregister_framebuffer(), that takes
+++				 * this lock.
+++				 */
+++				mutex_unlock(&registration_lock);
+++				platform_device_unregister(to_platform_device(device));
+++				mutex_lock(&registration_lock);
+++			} else {
+++				pr_warn("fb%d: cannot remove device\n", i);
+++				do_unregister_framebuffer(registered_fb[i]);
+++			}
+++			/*
+++			 * Restart the removal loop now that the device has been
+++			 * unregistered and its associated framebuffer gone.
+++			 */
+++			goto restart_removal;
+++		}
+++	}
+++}
+++
++ static int do_register_framebuffer(struct fb_info *fb_info)
++ {
++ 	int i;
++@@ -1435,6 +1531,10 @@ static int do_register_framebuffer(struct fb_info *fb_info)
++ 	if (fb_check_foreignness(fb_info))
++ 		return -ENOSYS;
++ 
+++	do_remove_conflicting_framebuffers(fb_info->apertures,
+++					   fb_info->fix.id,
+++					   fb_is_primary_device(fb_info));
+++
++ 	if (num_registered_fb == FB_MAX)
++ 		return -ENXIO;
++ 
++@@ -1553,6 +1653,42 @@ static void do_unregister_framebuffer(struct fb_info *fb_info)
++ 	put_fb_info(fb_info);
++ }
++ 
+++/**
+++ * remove_conflicting_framebuffers - remove firmware-configured framebuffers
+++ * @a: memory range, users of which are to be removed
+++ * @name: requesting driver name
+++ * @primary: also kick vga16fb if present
+++ *
+++ * This function removes framebuffer devices (initialized by firmware/bootloader)
+++ * which use memory range described by @a. If @a is NULL all such devices are
+++ * removed.
+++ */
+++int remove_conflicting_framebuffers(struct apertures_struct *a,
+++				    const char *name, bool primary)
+++{
+++	bool do_free = false;
+++
+++	if (!a) {
+++		a = alloc_apertures(1);
+++		if (!a)
+++			return -ENOMEM;
+++
+++		a->ranges[0].base = 0;
+++		a->ranges[0].size = ~0;
+++		do_free = true;
+++	}
+++
+++	mutex_lock(&registration_lock);
+++	do_remove_conflicting_framebuffers(a, name, primary);
+++	mutex_unlock(&registration_lock);
+++
+++	if (do_free)
+++		kfree(a);
+++
+++	return 0;
+++}
+++EXPORT_SYMBOL(remove_conflicting_framebuffers);
+++
++ /**
++  *	register_framebuffer - registers a frame buffer device
++  *	@fb_info: frame buffer info structure
++diff --git a/include/linux/fb.h b/include/linux/fb.h
++index ce7d588edc3e..42e41487ae50 100644
++--- a/include/linux/fb.h
+++++ b/include/linux/fb.h
++@@ -595,6 +595,8 @@ extern ssize_t fb_sys_write(struct fb_info *info, const char __user *buf,
++ /* drivers/video/fbmem.c */
++ extern int register_framebuffer(struct fb_info *fb_info);
++ extern void unregister_framebuffer(struct fb_info *fb_info);
+++extern int remove_conflicting_framebuffers(struct apertures_struct *a,
+++					   const char *name, bool primary);
++ extern int fb_prepare_logo(struct fb_info *fb_info, int rotate);
++ extern int fb_show_logo(struct fb_info *fb_info, int rotate);
++ extern char* fb_get_buffer_offset(struct fb_info *info, struct fb_pixmap *buf, u32 size);
++-- 
++2.42.0
++
+diff --git a/0002-Revert-fbdev-core-Remove-remove_conflicting_pci_fram.patch b/0002-Revert-fbdev-core-Remove-remove_conflicting_pci_fram.patch
+new file mode 100644
+index 0000000..1646af1
+--- /dev/null
++++ b/0002-Revert-fbdev-core-Remove-remove_conflicting_pci_fram.patch
+@@ -0,0 +1,141 @@
++From 4354920bf9949d24baec6a1cc51d6f0bca004a29 Mon Sep 17 00:00:00 2001
++From: Kabir Kwatra <kabir@kwatra.me>
++Date: Fri, 24 Feb 2023 04:12:03 -0800
++Subject: [PATCH 2/2] Revert "fbdev/core: Remove
++ remove_conflicting_pci_framebuffers()"
++
++This reverts commit 9d69ef1838150c7d87afc1a87aa658c637217585.
++---
++ drivers/video/aperture.c         | 30 ++++++++++----------
++ drivers/video/fbdev/core/fbmem.c | 48 ++++++++++++++++++++++++++++++++
++ include/linux/fb.h               |  2 ++
++ 3 files changed, 64 insertions(+), 16 deletions(-)
++
++diff --git a/drivers/video/aperture.c b/drivers/video/aperture.c
++index 89abe864cb00..980bde26649f 100644
++--- a/drivers/video/aperture.c
+++++ b/drivers/video/aperture.c
++@@ -375,34 +375,32 @@ EXPORT_SYMBOL(__aperture_remove_legacy_vga_devices);
++  */
++ int aperture_remove_conflicting_pci_devices(struct pci_dev *pdev, const char *name)
++ {
++-	bool primary = false;
++ 	resource_size_t base, size;
++ 	int bar, ret = 0;
++ 
++-	if (pdev == vga_default_device())
++-		primary = true;
++-
++-	if (primary)
++-		sysfb_disable();
+++	/*
+++	 * If this is the primary adapter, there could be a VGA device
+++	 * that consumes the VGA framebuffer I/O range. Remove this
+++	 * device as well.
+++	 */
+++#if IS_REACHABLE(CONFIG_FB)
+++	ret = remove_conflicting_pci_framebuffers(pdev, name);
+++	if (ret)
+++		return ret;
+++#endif
+++	ret = vga_remove_vgacon(pdev);
+++	if (ret)
+++		return ret;
++ 
++ 	for (bar = 0; bar < PCI_STD_NUM_BARS; ++bar) {
++ 		if (!(pci_resource_flags(pdev, bar) & IORESOURCE_MEM))
++ 			continue;
++-
++ 		base = pci_resource_start(pdev, bar);
++ 		size = pci_resource_len(pdev, bar);
++ 		aperture_detach_devices(base, size);
++ 	}
++ 
++-	/*
++-	 * If this is the primary adapter, there could be a VGA device
++-	 * that consumes the VGA framebuffer I/O range. Remove this
++-	 * device as well.
++-	 */
++-	if (primary)
++-		ret = __aperture_remove_legacy_vga_devices(pdev);
++-
++-	return ret;
+++	return 0;
++ 
++ }
++ EXPORT_SYMBOL(aperture_remove_conflicting_pci_devices);
++diff --git a/drivers/video/fbdev/core/fbmem.c b/drivers/video/fbdev/core/fbmem.c
++index 2666f3ee8df3..0012a98c6519 100644
++--- a/drivers/video/fbdev/core/fbmem.c
+++++ b/drivers/video/fbdev/core/fbmem.c
++@@ -1689,6 +1689,54 @@ int remove_conflicting_framebuffers(struct apertures_struct *a,
++ }
++ EXPORT_SYMBOL(remove_conflicting_framebuffers);
++ 
+++/**
+++ * remove_conflicting_pci_framebuffers - remove firmware-configured framebuffers for PCI devices
+++ * @pdev: PCI device
+++ * @name: requesting driver name
+++ *
+++ * This function removes framebuffer devices (eg. initialized by firmware)
+++ * using memory range configured for any of @pdev's memory bars.
+++ *
+++ * The function assumes that PCI device with shadowed ROM drives a primary
+++ * display and so kicks out vga16fb.
+++ */
+++int remove_conflicting_pci_framebuffers(struct pci_dev *pdev, const char *name)
+++{
+++	struct apertures_struct *ap;
+++	bool primary = false;
+++	int err, idx, bar;
+++
+++	for (idx = 0, bar = 0; bar < PCI_STD_NUM_BARS; bar++) {
+++		if (!(pci_resource_flags(pdev, bar) & IORESOURCE_MEM))
+++			continue;
+++		idx++;
+++	}
+++
+++	ap = alloc_apertures(idx);
+++	if (!ap)
+++		return -ENOMEM;
+++
+++	for (idx = 0, bar = 0; bar < PCI_STD_NUM_BARS; bar++) {
+++		if (!(pci_resource_flags(pdev, bar) & IORESOURCE_MEM))
+++			continue;
+++		ap->ranges[idx].base = pci_resource_start(pdev, bar);
+++		ap->ranges[idx].size = pci_resource_len(pdev, bar);
+++		pci_dbg(pdev, "%s: bar %d: 0x%lx -> 0x%lx\n", __func__, bar,
+++			(unsigned long)pci_resource_start(pdev, bar),
+++			(unsigned long)pci_resource_end(pdev, bar));
+++		idx++;
+++	}
+++
+++#ifdef CONFIG_X86
+++	primary = pdev->resource[PCI_ROM_RESOURCE].flags &
+++					IORESOURCE_ROM_SHADOW;
+++#endif
+++	err = remove_conflicting_framebuffers(ap, name, primary);
+++	kfree(ap);
+++	return err;
+++}
+++EXPORT_SYMBOL(remove_conflicting_pci_framebuffers);
+++
++ /**
++  *	register_framebuffer - registers a frame buffer device
++  *	@fb_info: frame buffer info structure
++diff --git a/include/linux/fb.h b/include/linux/fb.h
++index 42e41487ae50..e01c7e0810ad 100644
++--- a/include/linux/fb.h
+++++ b/include/linux/fb.h
++@@ -595,6 +595,8 @@ extern ssize_t fb_sys_write(struct fb_info *info, const char __user *buf,
++ /* drivers/video/fbmem.c */
++ extern int register_framebuffer(struct fb_info *fb_info);
++ extern void unregister_framebuffer(struct fb_info *fb_info);
+++extern int remove_conflicting_pci_framebuffers(struct pci_dev *pdev,
+++					       const char *name);
++ extern int remove_conflicting_framebuffers(struct apertures_struct *a,
++ 					   const char *name, bool primary);
++ extern int fb_prepare_logo(struct fb_info *fb_info, int rotate);
++-- 
++2.42.0
++
+diff --git a/PKGBUILD b/PKGBUILD
+index 0d1fa8b..7ff0f3d 100644
+--- a/PKGBUILD
++++ b/PKGBUILD
+@@ -1,6 +1,7 @@
++# Maintainer: Kabir Kwatra <kabir@kwatra.me>
+ # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+ 
+-pkgbase=linux
++pkgbase=linux-kab1r
+ pkgver=6.11.9.arch1
+ pkgrel=1
+ pkgdesc='Linux'
+diff --git a/keys/pgp/A2FF3A36AAA56654109064AB19802F8B0D70FC30.asc b/keys/pgp/A2FF3A36AAA56654109064AB19802F8B0D70FC30.asc
+new file mode 100644
+index 0000000..533f6ce
+--- /dev/null
++++ b/keys/pgp/A2FF3A36AAA56654109064AB19802F8B0D70FC30.asc
+@@ -0,0 +1,32 @@
++-----BEGIN PGP PUBLIC KEY BLOCK-----
++
++mDMEXrlG5RYJKwYBBAHaRw8BAQdAUHS8Z8nv7Qpds2idiabXgBePjduNTS6FDPew
++5ioWVzu0OEphbiBBbGV4YW5kZXIgU3RlZmZlbnMgKGhlZnRpZykgPGphbi5zdGVm
++ZmVuc0BnbWFpbC5jb20+iJMEExYIADsFCwkIBwIGFQoJCAsCBBYCAwECHgECF4AC
++GQEWIQSi/zo2qqVmVBCQZKsZgC+LDXD8MAUCXsft+AIbAwAKCRAZgC+LDXD8MGBc
++AQDNyC78jjQIB06d3XoRLeZtNzCauYl5H7eb/7NwV0G1qwD/fu6vWzI8o08S4Xen
++jFhLUFsiwQ4nSk00JdFrySXRHgq0PEphbiBBbGV4YW5kZXIgU3RlZmZlbnMgKGhl
++ZnRpZykgPGphbi5zdGVmZmVuc0BsdG5nbG9iYWwuY29tPoiQBBMWCAA4FiEEov86
++NqqlZlQQkGSrGYAviw1w/DAFAl65R0ACGwMFCwkIBwIGFQoJCAsCBBYCAwECHgEC
++F4AACgkQGYAviw1w/DBHTAD+PNwiUfbLSXEAJJpHArw5CT2sP7k1Yy6X2yK+R4dJ
++kHUBALF5qQlbVfiPskk09bmNrN6VRpxFkXF/NOF5mElKMd4AtDZKYW4gQWxleGFu
++ZGVyIFN0ZWZmZW5zIChoZWZ0aWcpIDxoZWZ0aWdAYXJjaGxpbnV4Lm9yZz6IkAQT
++FggAOBYhBKL/OjaqpWZUEJBkqxmAL4sNcPwwBQJeuU1kAhsDBQsJCAcCBhUKCQgL
++AgQWAgMBAh4BAheAAAoJEBmAL4sNcPwwSmYBAIV4TJmJUd2H8CB1/v6hBqfzcvdo
++ACsJfCYFEa0SMSbrAP9bGMNzxlCazbIcQPRf9z++Lwum5oyXqM39bqaHnCQNCbg4
++BF65RuUSCisGAQQBl1UBBQEBB0AFn0QAtcl65oxMplZAtuBin8mNWVkNhDbkb6Gz
++7boNWgMBCAeIeAQYFggAIBYhBKL/OjaqpWZUEJBkqxmAL4sNcPwwBQJeuUblAhsM
++AAoJEBmAL4sNcPwwTmMA/0NYZUauON3mKQjuu1utN5kIUBYEbxoZpKoYQBIjoV+Y
++AP9QcYa9ZqKZqJeIkJWu+DgKUPQj95p44B1nEVE2nAAfC7gzBF65R2QWCSsGAQQB
++2kcPAQEHQOo6khBqHiXAVPR5NBrKeCtHnb7zYYJmHxkCFhwbtcWviO8EGBYIACAW
++IQSi/zo2qqVmVBCQZKsZgC+LDXD8MAUCXrlHZAIbAgCBCRAZgC+LDXD8MHYgBBkW
++CAAdFiEEBmh6HZ1Pqwi1D9krO5SoDlCkd8cFAl65R2QACgkQO5SoDlCkd8cRdgEA
++k8M0dFfq8/YcSw4/nFHV/r9du86prBK3gkvcLduib3IA/jm1ENsH8ev0HB/p2PLw
++gq4kE8c8q8m7tagFesm2zpIHCIABAACxhRpz6oWlGFjhbOQ2+oNvn2z0l6RLCC6s
++obTR8LArAP9tuByp1H6Ta1fUhD8WZFYap3nu8GIQZW3iWVrVO8WhB7gzBF65TnYW
++CSsGAQQB2kcPAQEHQGNbRKSVPySqXMjiyxYXhhusHw7a1pokxZ2paLiEQ7ExiHgE
++GBYIACAWIQSi/zo2qqVmVBCQZKsZgC+LDXD8MAUCXrlOdgIbIAAKCRAZgC+LDXD8
++MAG7AP9AHkNtsZ50M2v9AtcWXPPo1xV7DHZhJqyaeXpV5BwmPAD/Qibc9XxPawrO
++YbSVLG0qZ/Yvw8Kpv1PAbduah+k3ywI=
++=LkJ5
++-----END PGP PUBLIC KEY BLOCK-----
+-- 
+2.47.0
+
+

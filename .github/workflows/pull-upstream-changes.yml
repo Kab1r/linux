@@ -1,0 +1,46 @@
+name: pull-upstream-changes
+on:
+  schedule: [{ cron: '0 8 * * *' }]
+  push:
+    branches: [ archpkg ]
+    paths: [ .github/** ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  pull-upstream-changes:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: archpkg
+      UPSTREAM_BRANCH: main
+      UPSTREAM_GIT_URL: https://gitlab.archlinux.org/archlinux/packaging/packages/linux.git
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        sparse-checkout: .github
+    - name: Fetch Tags
+      run: git fetch --tags
+    - name: Pull Upstream
+      run: |
+        git config --global user.name github-actions
+        git config --global user.email github-actions@github.com
+        git remote add -f -t "${UPSTREAM_BRANCH}" upstream "${UPSTREAM_GIT_URL}"
+        git reset --hard upstream/"${UPSTREAM_BRANCH}"
+    - name: Merge Current
+      run: |
+        git checkout "origin/${TARGET_BRANCH}" -- .github
+        git add .github
+    - name: Commit and Patch
+      run: |
+        git commit -m "chore(.github): restore files"
+        git am < .github/*.patch
+    - name: Tag
+      run: |
+        TAG="$(git log --format=%s -n1 upstream/"${UPSTREAM_BRANCH}")-${{ github.repository_owner }}"
+        git tag "${TAG}" && REFS="${TARGET_BRANCH} ${TAG}" || REFS="${TARGET_BRANCH}"
+        echo "REFS=${REFS}" >> "${GITHUB_ENV}"
+    - name: Push
+      run: |
+        git push --force-with-lease --atomic origin ${REFS}
