@@ -1,4 +1,4 @@
-From 984052d8c8564964ebdaf84b55654e7c3d7cbb4a Mon Sep 17 00:00:00 2001
+From f07743084b3340d1049eddeb191c949e0bc6a6fa Mon Sep 17 00:00:00 2001
 From: Kabir Kwatra <kabir@kwatra.me>
 Date: Thu, 7 Sep 2023 17:36:48 -0700
 Subject: [PATCH] feat: Add patches related to VFIO framebuffer issues
@@ -18,33 +18,18 @@ diff --git a/.SRCINFO b/.SRCINFO
 index 41ccf96..bf833a8 100644
 --- a/.SRCINFO
 +++ b/.SRCINFO
-@@ -1,4 +1,4 @@
+@@ -1 +1 @@
 -pkgbase = linux
 +pkgbase = linux-kab1r
- 	pkgdesc = Linux
- 	pkgver = 6.11.9.arch1
- 	pkgrel = 1
-@@ -40,7 +40,7 @@ pkgbase = linux
- 	b2sums = SKIP
- 	b2sums = d93b085af1eb81aacf91b79b06a1b7313f4d5290da4f0853beade5aab11a8a53fd1a541aa123ec8d445edee6c7d4a0b54c7d45afee2249b903614a582b5959bc
- 
+@@ -43 +43 @@ pkgbase = linux
 -pkgname = linux
 +pkgname = linux-kab1r
- 	pkgdesc = The Linux kernel and modules
- 	depends = coreutils
- 	depends = initramfs
-@@ -53,9 +53,9 @@ pkgname = linux
- 	replaces = virtualbox-guest-modules-arch
- 	replaces = wireguard-arch
- 
+@@ -56 +56 @@ pkgname = linux
 -pkgname = linux-headers
 +pkgname = linux-kab1r-headers
- 	pkgdesc = Headers and scripts for building modules for the Linux kernel
- 	depends = pahole
- 
+@@ -60 +60 @@ pkgname = linux-headers
 -pkgname = linux-docs
 +pkgname = linux-kab1r-docs
- 	pkgdesc = Documentation for the Linux kernel
 diff --git a/0001-Revert-fbdev-Remove-conflict-handling-code.patch b/0001-Revert-fbdev-Remove-conflict-handling-code.patch
 new file mode 100644
 index 0000000..659421d
@@ -445,15 +430,11 @@ diff --git a/PKGBUILD b/PKGBUILD
 index 0d1fa8b..7ff0f3d 100644
 --- a/PKGBUILD
 +++ b/PKGBUILD
-@@ -1,6 +1,7 @@
+@@ -0,0 +1 @@
 +# Maintainer: Kabir Kwatra <kabir@kwatra.me>
- # Maintainer: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
- 
+@@ -3 +4 @@
 -pkgbase=linux
 +pkgbase=linux-kab1r
- pkgver=6.11.9.arch1
- pkgrel=1
- pkgdesc='Linux'
 diff --git a/keys/pgp/A2FF3A36AAA56654109064AB19802F8B0D70FC30.asc b/keys/pgp/A2FF3A36AAA56654109064AB19802F8B0D70FC30.asc
 new file mode 100644
 index 0000000..533f6ce
@@ -493,6 +474,5 @@ index 0000000..533f6ce
 +=LkJ5
 +-----END PGP PUBLIC KEY BLOCK-----
 -- 
-2.47.0
-
+2.47.1
 
